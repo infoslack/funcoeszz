@@ -6,8 +6,8 @@
 # pois ficou muito extenso colocar no help do zzmat apenas.
 #
 # Funções matemáticas disponíveis.
-# mmc mdc somatoria produtoria media soma fat arranjo combinacao
-# pa pa2 pg area volume eq2g d2p egr err egc egc3p ege vetor
+# mmc mdc somatoria produtoria media soma fat arranjo arranjo_r combinacao
+# combinacao_r pa pa2 pg area volume eq2g d2p egr err egc egc3p ege vetor
 # converte sen cos tan csc sec cot asen acos atan log ln abs
 # raiz potencia elevado aleatorio random det conf_eq sem_zeros
 # Mais detalhes: zzmat função
@@ -83,7 +83,7 @@ zzmat ()
 			echo "$num1"|grep '\.' > /dev/null
 			if [ "$?" = "0" ]
 			then
-				num1=$(echo "$num1" | sed 's/[0[:blank:]\.]*$//')
+				num1=$(echo "$num1" | sed 's/[0[:blank:]]*$//' | sed 's/\.$//')
 			fi
 		fi
 		num1=$(echo "$num1"|sed 's/^\./0\./')
@@ -131,6 +131,28 @@ zzmat ()
 			rd) num="$num1*200/$pi";;
 			dg) num="$num1*0.9";;
 			gd) num="$num1/0.9";;
+			??)
+				local grandeza1 grandeza2 fator divisor potencia
+				local grandezas="y z a f p n u m c d 1 D H K M G T P E Z Y"
+				local potencias="-24 -21 -18 -15 -12 -9 -6 -3 -2 -1 0 1 2 3 6 9 12 15 18 21 24"
+				local posicao='1'
+				grandeza1=$(echo "$2" | sed 's/\([[:alpha:]1]\)[[:alpha:]1]/\1/')
+				grandeza2=$(echo "$2" | sed 's/[[:alpha:]1]\([[:alpha:]1]\)/\1/')
+				if ([ "$grandeza1" != "$grandeza2" ])
+				then
+					for letra in $(echo "$grandezas")
+					do
+						potencia=$(echo "$potencias"|awk '{print $'$posicao'}')
+						[ "$grandeza1" = "$letra" ] && fator=$(zzmat elevado 10 $potencia)
+						[ "$grandeza2" = "$letra" ] && divisor=$(zzmat elevado 10 $potencia)
+						let posicao++
+					done
+					if ([ "$fator" ] && [ "$divisor" ])
+					then
+						echo "$num1 $fator $divisor"|awk '{printf "%.'${precisao}'f\n", $1*$2/$3}'|zzmat -p${precisao} sem_zeros
+					fi
+				fi
+			;;
 			esac
 		else
 			echo " zzmat $funcao: Conversões de unidades (não contempladas no zzconverte)"
@@ -140,7 +162,11 @@ zzmat ()
 	dr: grado para radiano
 	rd: radiano para grado
 	dg: grado para graus
-	gd: graus para grado"
+	gd: graus para grado
+	ou com os pares do Sistema Internacional de Unidade
+	(y z a f p n u m c d 1 D H K M G T P E Z Y)
+	usando a combição dessa letras em pares, sendo na ordem 'de' 'para'
+	Exempo: Kd converte de Kilo para deci."
 			echo " Uso: zzmat $funcao sub-função número"
 			return 1
 		fi
@@ -611,70 +637,75 @@ zzmat ()
 		fi
 	;;
 	fat)
-		if ([ $# -eq "2" ] && zztool testa_numero "$2" && [ "$2" -gt "1" ])
+		if ([ $# -eq "2" ] && zztool testa_numero "$2" && [ "$2" -ge "1" ])
 		then
-			zzseq 2 $2|paste -s -d*|bc -l
+			zzseq 1 $2|paste -s -d*|bc -l
 		else
 			echo " zzmat $funcao: Resultado do produto de 1 ao numero atual (fatorial)"
 			echo " Uso: zzmat $funcao numero"
 			return 1
 		fi
 	;;
-	arranjo|combinacao)
+	arranjo|combinacao|arranjo_r|combinacao_r)
 		if ([ $# -eq "3" ] && zztool testa_numero "$2" && zztool testa_numero "$3" &&
-		    [ "$2" -gt "$3" ] && [ "$3" -gt "1" ])
+		    [ "$2" -ge "$3" ] && [ "$3" -ge "1" ])
 		then
 			local n p dnp
-			n=$(zzseq $2|paste -s -d*|bc)
-			p=$(zzseq $3|paste -s -d*|bc)
-			dnp=$(zzseq $(($2-$3))|paste -s -d*|bc -l)
+			n=$(zzmat fat $2)
+			p=$(zzmat fat $3)
+			dnp=$(zzmat fat $(($2-$3)))
 			case "$funcao" in
-			arranjo)    num="${n}/${dnp}";;
-			combinacao) num="${n}/(${p}*${dnp})";;
+			arranjo)    [ "$2" -gt "$3" ] && num="${n}/${dnp}" || return 1;;
+			arranjo_r)	zzmat elevado "$2" "$3";;
+			combinacao) [ "$2" -gt "$3" ] && num="${n}/(${p}*${dnp})" || return 1;;
+			combinacao_r)
+				if ([ "$2" -gt "$3" ])
+				then
+					n=$(zzmat fat $(($2+$3-1)))
+					dnp=$(zzmat fat $(($2-1)))
+					num="${n}/(${p}*${dnp})"
+				else
+					return 1
+				fi
+			;;
 			esac
 		else
 			echo " zzmat arranjo: n elementos tomados em grupos de p (considera ordem)"
+			echo " zzmat arranjo_r: n elementos tomados em grupos de p com repetição (considera ordem)"
 			echo " zzmat combinacao: n elementos tomados em grupos de p (desconsidera ordem)"
+			echo " zzmat combinacao_r: n elementos tomados em grupos de p com repetição (desconsidera ordem)"
 			echo " Uso: zzmat $funcao total_numero quantidade_grupo"
 			return 1
 		fi
 	;;
 	pa|pa2|pg)
-		if ([ $# -eq "4" ])
+		if ([ $# -eq "4" ] && zzmat testa_num "$2" &&
+		zzmat testa_num "$3" && zztool testa_numero "$4")
 		then
 			local num_inicial razao passo valor
-			if zzmat testa_num "$2"
-			then
-				if zzmat testa_num "$3"
+			num_inicial=$(echo "$2"|tr ',' '.')
+			razao=$(echo "$3"|tr ',' '.')
+			passo=0
+			valor=$num_inicial
+			while ([ $passo -lt $4 ])
+			do
+				if [ "$funcao" = "pa" ]
 				then
-					if (zztool testa_numero $4)
-					then
-						num_inicial=$(echo "$2"|tr ',' '.')
-						razao=$(echo "$3"|tr ',' '.')
-						passo=0
-						valor=$num_inicial
-						while ([ $passo -lt $4 ])
-						do
-							if [ "$funcao" = "pa" ]
-							then
-								valor=$(echo "$num_inicial + ($razao * $passo)"|bc -l|
-								awk '{printf "%.'${precisao}'f\n", $1}')
-							elif [ "$funcao" = "pa2" ]
-							then
-								valor=$(echo "$valor + ($razao * $passo)"|bc -l|
-								awk '{printf "%.'${precisao}'f\n", $1}')
-							else
-								valor=$(echo "$num_inicial * $razao^$passo"|bc -l|
-								awk '{printf "%.'${precisao}'f\n", $1}')
-							fi
-							valor=$(echo "$valor"|zzmat -p${precisao} sem_zeros)
-							echo -n " $valor"
-							passo=$(($passo+1))
-						done
-						echo
-					fi
+					valor=$(echo "$num_inicial + ($razao * $passo)"|bc -l|
+					awk '{printf "%.'${precisao}'f\n", $1}')
+				elif [ "$funcao" = "pa2" ]
+				then
+					valor=$(echo "$valor + ($razao * $passo)"|bc -l|
+					awk '{printf "%.'${precisao}'f\n", $1}')
+				else
+					valor=$(echo "$num_inicial * $razao^$passo"|bc -l|
+					awk '{printf "%.'${precisao}'f\n", $1}')
 				fi
-			fi
+				valor=$(echo "$valor"|zzmat -p${precisao} sem_zeros)
+				echo -n " $valor"
+				passo=$(($passo+1))
+			done
+			echo
 		else
 			echo " zzmat pa:  Progressão Aritmética"
 			echo " zzmat pa2: Progressão Aritmética de Segunda Ordem"
